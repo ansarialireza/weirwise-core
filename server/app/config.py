@@ -14,8 +14,8 @@ class Settings(BaseSettings):
     port: int = 8000
 
     # Database
-    database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/weirwise"
-    database_sync_url: str = "postgresql://postgres:postgres@localhost:5432/weirwise"
+    database_url: str = "postgresql+asyncpg://postgres:postgres@127.0.0.1:5432/weirwise"
+    database_sync_url: str = "postgresql://postgres:postgres@127.0.0.1:5432/weirwise"
     db_pool_size: int = 10
     db_max_overflow: int = 20
     db_timeout_seconds: int = 30

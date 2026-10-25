@@ -8,6 +8,7 @@ Create Date: 2026-10-25 00:00:00.000000
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
 from pgvector.sqlalchemy import Vector
 
 # revision identifiers, used by Alembic.
@@ -20,13 +21,16 @@ depends_on = None
 def upgrade() -> None:
     # 0. Extension for pgvector
     conn = op.get_bind()
-    if conn.dialect.name == "postgresql":
+    is_postgres = conn.dialect.name == "postgresql"
+    if is_postgres:
         op.execute("CREATE EXTENSION IF NOT EXISTS vector")
+
+    uuid_col = postgresql.UUID(as_uuid=True) if is_postgres else sa.CHAR(36)
 
     # 1. Tenants
     op.create_table(
         "tenants",
-        sa.Column("id", sa.CHAR(36), primary_key=True),
+        sa.Column("id", uuid_col, primary_key=True),
         sa.Column("name", sa.String(255), nullable=False),
         sa.Column("status", sa.String(50), nullable=False, server_default="active"),
         sa.Column("created_at", sa.DateTime(), nullable=False),
@@ -36,10 +40,10 @@ def upgrade() -> None:
     # 2. API Keys
     op.create_table(
         "api_keys",
-        sa.Column("id", sa.CHAR(36), primary_key=True),
+        sa.Column("id", uuid_col, primary_key=True),
         sa.Column(
             "tenant_id",
-            sa.CHAR(36),
+            uuid_col,
             sa.ForeignKey("tenants.id", ondelete="CASCADE"),
             nullable=False,
         ),
@@ -55,10 +59,10 @@ def upgrade() -> None:
     # 3. Knowledge Bases
     op.create_table(
         "knowledge_bases",
-        sa.Column("id", sa.CHAR(36), primary_key=True),
+        sa.Column("id", uuid_col, primary_key=True),
         sa.Column(
             "tenant_id",
-            sa.CHAR(36),
+            uuid_col,
             sa.ForeignKey("tenants.id", ondelete="CASCADE"),
             nullable=False,
         ),
@@ -72,16 +76,16 @@ def upgrade() -> None:
     # 4. Documents
     op.create_table(
         "documents",
-        sa.Column("id", sa.CHAR(36), primary_key=True),
+        sa.Column("id", uuid_col, primary_key=True),
         sa.Column(
             "tenant_id",
-            sa.CHAR(36),
+            uuid_col,
             sa.ForeignKey("tenants.id", ondelete="CASCADE"),
             nullable=False,
         ),
         sa.Column(
             "knowledge_base_id",
-            sa.CHAR(36),
+            uuid_col,
             sa.ForeignKey("knowledge_bases.id", ondelete="CASCADE"),
             nullable=False,
         ),
@@ -99,30 +103,31 @@ def upgrade() -> None:
     op.create_index("ix_documents_knowledge_base_id", "documents", ["knowledge_base_id"])
 
     # 5. Document Chunks
+    json_col = postgresql.JSONB() if is_postgres else sa.JSON()
     op.create_table(
         "document_chunks",
-        sa.Column("id", sa.CHAR(36), primary_key=True),
+        sa.Column("id", uuid_col, primary_key=True),
         sa.Column(
             "tenant_id",
-            sa.CHAR(36),
+            uuid_col,
             sa.ForeignKey("tenants.id", ondelete="CASCADE"),
             nullable=False,
         ),
         sa.Column(
             "knowledge_base_id",
-            sa.CHAR(36),
+            uuid_col,
             sa.ForeignKey("knowledge_bases.id", ondelete="CASCADE"),
             nullable=False,
         ),
         sa.Column(
             "document_id",
-            sa.CHAR(36),
+            uuid_col,
             sa.ForeignKey("documents.id", ondelete="CASCADE"),
             nullable=False,
         ),
         sa.Column("chunk_index", sa.Integer(), nullable=False),
         sa.Column("content", sa.Text(), nullable=False),
-        sa.Column("metadata", sa.JSON(), nullable=True),
+        sa.Column("metadata", json_col, nullable=True),
         sa.Column("embedding", Vector(1536), nullable=True),
         sa.Column("created_at", sa.DateTime(), nullable=False),
     )
@@ -134,16 +139,16 @@ def upgrade() -> None:
     # 6. Assistants
     op.create_table(
         "assistants",
-        sa.Column("id", sa.CHAR(36), primary_key=True),
+        sa.Column("id", uuid_col, primary_key=True),
         sa.Column(
             "tenant_id",
-            sa.CHAR(36),
+            uuid_col,
             sa.ForeignKey("tenants.id", ondelete="CASCADE"),
             nullable=False,
         ),
         sa.Column(
             "knowledge_base_id",
-            sa.CHAR(36),
+            uuid_col,
             sa.ForeignKey("knowledge_bases.id", ondelete="SET NULL"),
             nullable=True,
         ),
@@ -161,16 +166,16 @@ def upgrade() -> None:
     # 7. Conversations
     op.create_table(
         "conversations",
-        sa.Column("id", sa.CHAR(36), primary_key=True),
+        sa.Column("id", uuid_col, primary_key=True),
         sa.Column(
             "tenant_id",
-            sa.CHAR(36),
+            uuid_col,
             sa.ForeignKey("tenants.id", ondelete="CASCADE"),
             nullable=False,
         ),
         sa.Column(
             "assistant_id",
-            sa.CHAR(36),
+            uuid_col,
             sa.ForeignKey("assistants.id", ondelete="CASCADE"),
             nullable=False,
         ),
@@ -184,22 +189,22 @@ def upgrade() -> None:
     # 8. Messages
     op.create_table(
         "messages",
-        sa.Column("id", sa.CHAR(36), primary_key=True),
+        sa.Column("id", uuid_col, primary_key=True),
         sa.Column(
             "tenant_id",
-            sa.CHAR(36),
+            uuid_col,
             sa.ForeignKey("tenants.id", ondelete="CASCADE"),
             nullable=False,
         ),
         sa.Column(
             "conversation_id",
-            sa.CHAR(36),
+            uuid_col,
             sa.ForeignKey("conversations.id", ondelete="CASCADE"),
             nullable=False,
         ),
         sa.Column("role", sa.String(50), nullable=False),
         sa.Column("content", sa.Text(), nullable=False),
-        sa.Column("sources", sa.JSON(), nullable=True),
+        sa.Column("sources", json_col, nullable=True),
         sa.Column("created_at", sa.DateTime(), nullable=False),
     )
     op.create_index("ix_messages_tenant_id", "messages", ["tenant_id"])
@@ -208,16 +213,16 @@ def upgrade() -> None:
     # 9. Ingestion Jobs
     op.create_table(
         "ingestion_jobs",
-        sa.Column("id", sa.CHAR(36), primary_key=True),
+        sa.Column("id", uuid_col, primary_key=True),
         sa.Column(
             "tenant_id",
-            sa.CHAR(36),
+            uuid_col,
             sa.ForeignKey("tenants.id", ondelete="CASCADE"),
             nullable=False,
         ),
         sa.Column(
             "document_id",
-            sa.CHAR(36),
+            uuid_col,
             sa.ForeignKey("documents.id", ondelete="CASCADE"),
             nullable=False,
         ),
