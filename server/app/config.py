@@ -1,0 +1,62 @@
+from functools import lru_cache
+from typing import Optional
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    # Environment & Logging
+    env: str = "development"
+    log_level: str = "INFO"
+    secret_key: str = "weirwise-default-development-secret-key-32chars"
+
+    # Server
+    host: str = "0.0.0.0"
+    port: int = 8000
+
+    # Database
+    database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/weirwise"
+    database_sync_url: str = "postgresql://postgres:postgres@localhost:5432/weirwise"
+    db_pool_size: int = 10
+    db_max_overflow: int = 20
+    db_timeout_seconds: int = 30
+
+    # Storage
+    storage_dir: str = "./data/storage"
+    max_upload_size_bytes: int = 50 * 1024 * 1024  # 50MB
+
+    # Ingestion & Chunking
+    chunk_size: int = 500
+    chunk_overlap: int = 50
+
+    # Background Worker
+    worker_poll_interval: float = 2.0
+    worker_concurrency: int = 2
+    worker_max_retries: int = 3
+
+    # Embedding Provider (OpenAI-compatible)
+    embedding_base_url: str = "https://api.openai.com/v1"
+    embedding_api_key: Optional[str] = None
+    embedding_model: str = "text-embedding-3-small"
+    embedding_dimensions: int = 1536
+    embedding_timeout_seconds: float = 30.0
+    embedding_batch_size: int = 64
+
+    # Chat / LLM Provider (OpenAI-compatible)
+    chat_base_url: str = "https://api.openai.com/v1"
+    chat_api_key: Optional[str] = None
+    chat_model: str = "gpt-4o-mini"
+    chat_timeout_seconds: float = 60.0
+    chat_max_tokens: int = 1024
+    chat_temperature: float = 0.2
+
+    model_config = SettingsConfigDict(
+        env_prefix="WEIRWISE_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+
+@lru_cache()
+def get_settings() -> Settings:
+    return Settings()

@@ -1,0 +1,21 @@
+.git
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+
+# Local data & environment
+.env
+data/
+*.db
+*.sqlite
+
+# Logs
+*.log

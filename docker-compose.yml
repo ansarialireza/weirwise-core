@@ -1,0 +1,62 @@
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: weirwise-db
+    environment:
+      POSTGRES_DB: weirwise
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - weirwise_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d weirwise"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: weirwise-server
+    command: ["sh", "-c", "alembic -c server/alembic.ini upgrade head && uvicorn server.app.main:app --host 0.0.0.0 --port 8000"]
+    environment:
+      - WEIRWISE_DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/weirwise
+      - WEIRWISE_DATABASE_SYNC_URL=postgresql://postgres:postgres@db:5432/weirwise
+      - WEIRWISE_STORAGE_DIR=/app/data/storage
+      - WEIRWISE_EMBEDDING_API_KEY=${WEIRWISE_EMBEDDING_API_KEY}
+      - WEIRWISE_CHAT_API_KEY=${WEIRWISE_CHAT_API_KEY}
+    volumes:
+      - weirwise_data:/app/data
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: weirwise-worker
+    command: ["python", "-m", "server.app.worker"]
+    environment:
+      - WEIRWISE_DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/weirwise
+      - WEIRWISE_DATABASE_SYNC_URL=postgresql://postgres:postgres@db:5432/weirwise
+      - WEIRWISE_STORAGE_DIR=/app/data/storage
+      - WEIRWISE_EMBEDDING_API_KEY=${WEIRWISE_EMBEDDING_API_KEY}
+      - WEIRWISE_CHAT_API_KEY=${WEIRWISE_CHAT_API_KEY}
+    volumes:
+      - weirwise_data:/app/data
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  weirwise_pgdata:
+  weirwise_data:
