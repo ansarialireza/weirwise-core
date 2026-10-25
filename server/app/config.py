@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     max_upload_size_bytes: int = 50 * 1024 * 1024  # 50MB
 
     # Ingestion & Chunking
+    ingestion_mode: str = "inline"  # "inline" (default: FastAPI background tasks for development/tests) or "worker" (external worker)
     chunk_size: int = 500
     chunk_overlap: int = 50
 
@@ -32,6 +33,8 @@ class Settings(BaseSettings):
     worker_poll_interval: float = 2.0
     worker_concurrency: int = 2
     worker_max_retries: int = 3
+    worker_lease_seconds: int = 120
+    worker_heartbeat_interval: float = 30.0
 
     # Embedding Provider (OpenAI-compatible)
     embedding_base_url: str = "https://api.openai.com/v1"

@@ -1,9 +1,16 @@
 import os
+import time
 from typing import List, Optional, Union
 from uuid import UUID
 import httpx
 from weirwise.models import KnowledgeBase, Document, SearchResult, Assistant, ChatResponse
-from weirwise.exceptions import AuthenticationError, NotFoundError, APIError
+from weirwise.exceptions import (
+    AuthenticationError,
+    NotFoundError,
+    APIError,
+    IngestionTimeoutError,
+    IngestionFailedError,
+)
 
 
 class KnowledgeBasesResource:
@@ -15,8 +22,8 @@ class KnowledgeBasesResource:
         res = self.client._post("/api/v1/knowledge-bases", json=payload)
         return KnowledgeBase(**res)
 
-    def list(self) -> List[KnowledgeBase]:
-        res = self.client._get("/api/v1/knowledge-bases")
+    def list(self, limit: int = 50, offset: int = 0) -> List[KnowledgeBase]:
+        res = self.client._get("/api/v1/knowledge-bases", params={"limit": limit, "offset": offset})
         return [KnowledgeBase(**item) for item in res]
 
     def get(self, kb_id: Union[str, UUID]) -> KnowledgeBase:
@@ -46,9 +53,34 @@ class DocumentsResource:
         res = self.client._get(f"/api/v1/documents/{doc_id}")
         return Document(**res)
 
-    def list(self, knowledge_base_id: Union[str, UUID]) -> List[Document]:
-        res = self.client._get(f"/api/v1/knowledge-bases/{knowledge_base_id}/documents")
+    def list(
+        self, knowledge_base_id: Union[str, UUID], limit: int = 50, offset: int = 0
+    ) -> List[Document]:
+        res = self.client._get(
+            f"/api/v1/knowledge-bases/{knowledge_base_id}/documents",
+            params={"limit": limit, "offset": offset},
+        )
         return [Document(**item) for item in res]
+
+    def wait_for_completion(
+        self,
+        doc_id: Union[str, UUID],
+        timeout: float = 60.0,
+        poll_interval: float = 1.0,
+    ) -> Document:
+        """Polls document until ingestion is 'completed' or 'failed', with timeout."""
+        start_time = time.time()
+        while time.time() - start_time < timeout:
+            doc = self.get(doc_id)
+            if doc.status == "completed":
+                return doc
+            elif doc.status == "failed":
+                raise IngestionFailedError(
+                    document_id=doc_id, message=doc.error_message or "Unknown failure"
+                )
+            time.sleep(poll_interval)
+
+        raise IngestionTimeoutError(document_id=doc_id, timeout=timeout)
 
     def delete(self, doc_id: Union[str, UUID]) -> None:
         self.client._delete(f"/api/v1/documents/{doc_id}")
@@ -76,8 +108,9 @@ class AssistantsResource:
         res = self.client._post("/api/v1/assistants", json=payload)
         return Assistant(**res)
 
-    def list(self) -> List[Assistant]:
-        res = self.client._get("/api/v1/assistants")
+    def list(self, limit: int = 50, offset: int = 0) -> List[Assistant]:
+        params = {"limit": limit, "offset": offset}
+        res = self.client._get("/api/v1/assistants", params=params)
         return [Assistant(**item) for item in res]
 
     def get(self, assistant_id: Union[str, UUID]) -> Assistant:

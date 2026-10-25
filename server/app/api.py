@@ -15,7 +15,7 @@ from fastapi import (
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from server.app.database import get_db
+from server.app.database import get_db, AsyncSessionLocal
 from server.app.dependencies import get_current_tenant
 from server.app.config import get_settings, Settings
 from server.app.models import (
@@ -70,10 +70,23 @@ async def create_knowledge_base(
 
 @router.get("/knowledge-bases", response_model=List[KnowledgeBaseResponse])
 async def list_knowledge_bases(
+    limit: int = 50,
+    offset: int = 0,
     tenant: Tenant = Depends(get_current_tenant),
     db: AsyncSession = Depends(get_db),
 ):
-    stmt = select(KnowledgeBase).where(KnowledgeBase.tenant_id == tenant.id)
+    if limit < 1 or limit > 100:
+        raise HTTPException(status_code=422, detail="limit must be between 1 and 100")
+    if offset < 0:
+        raise HTTPException(status_code=422, detail="offset must be >= 0")
+
+    stmt = (
+        select(KnowledgeBase)
+        .where(KnowledgeBase.tenant_id == tenant.id)
+        .order_by(KnowledgeBase.created_at.desc(), KnowledgeBase.id.desc())
+        .limit(limit)
+        .offset(offset)
+    )
     res = await db.execute(stmt)
     return res.scalars().all()
 
@@ -146,6 +159,82 @@ async def upload_document(
 
     content_hash = hashlib.sha256(content).hexdigest()
 
+    # ATOMIC DEDUPLICATION & CONCURRENCY CONTROL
+    # Lock document record by (knowledge_base_id, content_hash) if exists
+    existing_doc_stmt = (
+        select(Document)
+        .where(
+            Document.knowledge_base_id == kb.id,
+            Document.content_hash == content_hash,
+        )
+        .with_for_update()
+    )
+    existing_res = await db.execute(existing_doc_stmt)
+    existing_doc = existing_res.scalars().first()
+
+    if existing_doc:
+        if existing_doc.status == "completed":
+            return DocumentUploadResponse(
+                document=DocumentResponse.model_validate(existing_doc),
+                job_id=None,
+                message="Document already indexed.",
+            )
+        elif existing_doc.status in ("pending", "processing"):
+            return DocumentUploadResponse(
+                document=DocumentResponse.model_validate(existing_doc),
+                job_id=None,
+                message="Document ingestion already in progress.",
+            )
+        elif existing_doc.status == "failed":
+            # Failed document retry: check if an active job already exists
+            active_job_stmt = (
+                select(IngestionJob)
+                .where(
+                    IngestionJob.document_id == existing_doc.id,
+                    IngestionJob.status.in_(["pending", "processing"]),
+                )
+                .with_for_update()
+            )
+            job_res = await db.execute(active_job_stmt)
+            active_job = job_res.scalars().first()
+
+            if active_job:
+                return DocumentUploadResponse(
+                    document=DocumentResponse.model_validate(existing_doc),
+                    job_id=active_job.id,
+                    message="Document ingestion already in progress.",
+                )
+
+            # Atomically reset failed document to pending and enqueue single job
+            existing_doc.status = "pending"
+            existing_doc.error_message = None
+            retry_job = IngestionJob(
+                tenant_id=tenant.id,
+                document_id=existing_doc.id,
+                status="pending",
+            )
+            db.add(retry_job)
+            await db.commit()
+            await db.refresh(existing_doc)
+            await db.refresh(retry_job)
+
+            if settings.ingestion_mode == "inline":
+                provider = OpenAIEmbeddingProvider(settings)
+                session_factory = getattr(db, "_session_factory", AsyncSessionLocal)
+                background_tasks.add_task(
+                    process_document_job,
+                    retry_job.id,
+                    settings,
+                    provider,
+                    db_session_factory=session_factory,
+                )
+
+            return DocumentUploadResponse(
+                document=DocumentResponse.model_validate(existing_doc),
+                job_id=retry_job.id,
+                message="Failed document retrying. Ingestion started.",
+            )
+
     # Generate safe storage path
     storage_dir = settings.storage_dir
     os.makedirs(storage_dir, exist_ok=True)
@@ -166,8 +255,33 @@ async def upload_document(
         content_hash=content_hash,
         status="pending",
     )
-    db.add(doc)
-    await db.flush()
+    try:
+        async with db.begin_nested():
+            db.add(doc)
+            await db.flush()
+    except Exception as e:
+        # Race condition: another concurrent upload inserted the same (knowledge_base_id, content_hash)
+        race_res = await db.execute(
+            select(Document).where(
+                Document.knowledge_base_id == kb.id,
+                Document.content_hash == content_hash,
+            )
+        )
+        existing_doc = race_res.scalars().first()
+        if existing_doc:
+            if existing_doc.status == "completed":
+                return DocumentUploadResponse(
+                    document=DocumentResponse.model_validate(existing_doc),
+                    job_id=None,
+                    message="Document already indexed.",
+                )
+            else:
+                return DocumentUploadResponse(
+                    document=DocumentResponse.model_validate(existing_doc),
+                    job_id=None,
+                    message="Document ingestion already in progress.",
+                )
+        raise e
 
     job = IngestionJob(
         tenant_id=tenant.id,
@@ -179,15 +293,18 @@ async def upload_document(
     await db.refresh(doc)
     await db.refresh(job)
 
-    # Trigger background task for immediate ingestion
-    provider = OpenAIEmbeddingProvider(settings)
-    from server.app.database import AsyncSessionLocal
+    # If ingestion_mode is inline, execute background task; otherwise worker handles it via SKIP LOCKED
+    if settings.ingestion_mode == "inline":
+        provider = OpenAIEmbeddingProvider(settings)
 
-    # Check if app state has session factory
-    session_factory = getattr(db, "_session_factory", AsyncSessionLocal)
-    background_tasks.add_task(
-        process_document_job, job.id, settings, provider, db_session_factory=session_factory
-    )
+        session_factory = getattr(db, "_session_factory", AsyncSessionLocal)
+        background_tasks.add_task(
+            process_document_job,
+            job.id,
+            settings,
+            provider,
+            db_session_factory=session_factory,
+        )
 
     return DocumentUploadResponse(
         document=DocumentResponse.model_validate(doc),
@@ -216,9 +333,16 @@ async def get_document(
 @router.get("/knowledge-bases/{kb_id}/documents", response_model=List[DocumentResponse])
 async def list_documents(
     kb_id: UUID,
+    limit: int = 50,
+    offset: int = 0,
     tenant: Tenant = Depends(get_current_tenant),
     db: AsyncSession = Depends(get_db),
 ):
+    if limit < 1 or limit > 100:
+        raise HTTPException(status_code=422, detail="limit must be between 1 and 100")
+    if offset < 0:
+        raise HTTPException(status_code=422, detail="offset must be >= 0")
+
     # Check KB ownership
     kb_res = await db.execute(
         select(KnowledgeBase).where(
@@ -229,9 +353,15 @@ async def list_documents(
     if not kb_res.scalars().first():
         raise HTTPException(status_code=404, detail="Knowledge base not found")
 
-    stmt = select(Document).where(
-        Document.knowledge_base_id == kb_id,
-        Document.tenant_id == tenant.id,
+    stmt = (
+        select(Document)
+        .where(
+            Document.knowledge_base_id == kb_id,
+            Document.tenant_id == tenant.id,
+        )
+        .order_by(Document.created_at.desc(), Document.id.desc())
+        .limit(limit)
+        .offset(offset)
     )
     res = await db.execute(stmt)
     return res.scalars().all()
@@ -330,10 +460,23 @@ async def create_assistant(
 
 @router.get("/assistants", response_model=List[AssistantResponse])
 async def list_assistants(
+    limit: int = 50,
+    offset: int = 0,
     tenant: Tenant = Depends(get_current_tenant),
     db: AsyncSession = Depends(get_db),
 ):
-    stmt = select(Assistant).where(Assistant.tenant_id == tenant.id)
+    if limit < 1 or limit > 100:
+        raise HTTPException(status_code=422, detail="limit must be between 1 and 100")
+    if offset < 0:
+        raise HTTPException(status_code=422, detail="offset must be >= 0")
+
+    stmt = (
+        select(Assistant)
+        .where(Assistant.tenant_id == tenant.id)
+        .order_by(Assistant.created_at.desc(), Assistant.id.desc())
+        .limit(limit)
+        .offset(offset)
+    )
     res = await db.execute(stmt)
     return res.scalars().all()
 
