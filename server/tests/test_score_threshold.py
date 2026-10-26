@@ -111,3 +111,128 @@ async def test_retrieval_score_threshold_filtering():
         score_threshold=1.0001,  # even if passed directly to function
     )
     assert len(empty_res) == 0
+
+
+@pytest.mark.asyncio
+async def test_native_pgvector_score_threshold_real_db():
+    """Verify native PostgreSQL pgvector cosine distance filtering against live PostgreSQL."""
+    from server.app.database import AsyncSessionLocal, engine, Base
+    from server.app.models import Tenant, KnowledgeBase, Document
+    from sqlalchemy import text
+
+    async with engine.begin() as conn:
+        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+        await conn.run_sync(Base.metadata.create_all)
+
+    # 1536-dimensional vectors
+    vec_perfect = [1.0] + [0.0] * 1535  # sim = 1.0 with query [1.0, 0.0, ...]
+    vec_partial = [0.8, 0.6] + [0.0] * 1534  # norm = 1.0, dot = 0.8 -> sim = 0.8
+    vec_orthogonal = [0.0, 1.0] + [0.0] * 1534  # dot = 0.0 -> sim = 0.0
+
+    async with AsyncSessionLocal() as session:
+        tenant = Tenant(name="PgVector Threshold Test Tenant")
+        session.add(tenant)
+        await session.flush()
+
+        kb = KnowledgeBase(tenant_id=tenant.id, name="Threshold KB")
+        session.add(kb)
+        await session.flush()
+
+        doc = Document(
+            tenant_id=tenant.id,
+            knowledge_base_id=kb.id,
+            filename="threshold_test.txt",
+            storage_path="mock/path.txt",
+            mime_type="text/plain",
+            file_size=100,
+            content_hash="mockhash",
+            status="completed",
+        )
+        session.add(doc)
+        await session.flush()
+
+        tenant_id = tenant.id
+        kb_id = kb.id
+        doc_id = doc.id
+
+        c1 = DocumentChunk(
+            id=uuid.uuid4(),
+            tenant_id=tenant_id,
+            knowledge_base_id=kb_id,
+            document_id=doc_id,
+            chunk_index=0,
+            content="Perfect Match",
+            embedding=vec_perfect,
+            chunk_metadata={"tag": "perfect"},
+        )
+        c2 = DocumentChunk(
+            id=uuid.uuid4(),
+            tenant_id=tenant_id,
+            knowledge_base_id=kb_id,
+            document_id=doc_id,
+            chunk_index=1,
+            content="Partial Match",
+            embedding=vec_partial,
+            chunk_metadata={"tag": "partial"},
+        )
+        c3 = DocumentChunk(
+            id=uuid.uuid4(),
+            tenant_id=tenant_id,
+            knowledge_base_id=kb_id,
+            document_id=doc_id,
+            chunk_index=2,
+            content="Orthogonal Match",
+            embedding=vec_orthogonal,
+            chunk_metadata={"tag": "orthogonal"},
+        )
+        session.add_all([c1, c2, c3])
+        await session.commit()
+
+    class Provider1536:
+        async def get_embeddings(self, texts):
+            return [[1.0] + [0.0] * 1535 for _ in texts]
+
+    async with AsyncSessionLocal() as session:
+        # 1. No threshold -> returns top 3 in order
+        res_all = await retrieve_relevant_chunks(
+            db=session,
+            tenant_id=tenant_id,
+            knowledge_base_id=kb_id,
+            query="test",
+            embedding_provider=Provider1536(),
+            top_k=5,
+            score_threshold=None,
+        )
+        assert len(res_all) == 3
+        assert res_all[0]["content"] == "Perfect Match"
+        assert res_all[0]["similarity_score"] == 1.0
+        assert res_all[1]["content"] == "Partial Match"
+        assert round(res_all[1]["similarity_score"], 2) == 0.80
+        assert res_all[2]["content"] == "Orthogonal Match"
+        assert round(res_all[2]["similarity_score"], 2) == 0.0
+
+        # 2. Threshold = 0.75 -> filters out Orthogonal Match, keeps Perfect and Partial
+        res_thresh = await retrieve_relevant_chunks(
+            db=session,
+            tenant_id=tenant_id,
+            knowledge_base_id=kb_id,
+            query="test",
+            embedding_provider=Provider1536(),
+            top_k=5,
+            score_threshold=0.75,
+        )
+        assert len(res_thresh) == 2
+        assert [r["content"] for r in res_thresh] == ["Perfect Match", "Partial Match"]
+
+        # 3. Threshold = 0.95 -> only Perfect Match
+        res_high = await retrieve_relevant_chunks(
+            db=session,
+            tenant_id=tenant_id,
+            knowledge_base_id=kb_id,
+            query="test",
+            embedding_provider=Provider1536(),
+            top_k=5,
+            score_threshold=0.95,
+        )
+        assert len(res_high) == 1
+        assert res_high[0]["content"] == "Perfect Match"
