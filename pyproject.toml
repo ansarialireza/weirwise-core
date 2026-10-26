@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "weirwise-core"
-version = "0.2.0"
+version = "0.3.0"
 description = "Lightweight, reliable, modular open-source RAG infrastructure for developers."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -43,6 +43,11 @@ dev = [
 
 [project.scripts]
 weirwise = "server.app.cli:cli"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["server*"]
+exclude = ["data*", "packages*", "benchmarks*", "tests*"]
 
 [tool.ruff]
 line-length = 100

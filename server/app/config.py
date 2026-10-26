@@ -1,9 +1,13 @@
 from functools import lru_cache
-from typing import Optional
+from typing import Optional, Literal
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    # App & API Version
+    app_version: str = "0.3.0"
+
     # Environment & Logging
     env: str = "development"
     log_level: str = "INFO"
@@ -25,7 +29,9 @@ class Settings(BaseSettings):
     max_upload_size_bytes: int = 50 * 1024 * 1024  # 50MB
 
     # Ingestion & Chunking
-    ingestion_mode: str = "inline"  # "inline" (default: FastAPI background tasks for development/tests) or "worker" (external worker)
+    ingestion_mode: Literal["inline", "worker"] = (
+        "inline"  # "inline" (FastAPI background tasks) or "worker" (external worker)
+    )
     chunk_size: int = 500
     chunk_overlap: int = 50
 
@@ -51,6 +57,35 @@ class Settings(BaseSettings):
     chat_timeout_seconds: float = 60.0
     chat_max_tokens: int = 1024
     chat_temperature: float = 0.2
+
+    @field_validator("chunk_size")
+    @classmethod
+    def validate_chunk_size(cls, v: int) -> int:
+        if v <= 0:
+            raise ValueError("chunk_size must be a positive integer greater than 0")
+        return v
+
+    @field_validator("chunk_overlap")
+    @classmethod
+    def validate_chunk_overlap(cls, v: int) -> int:
+        if v < 0:
+            raise ValueError("chunk_overlap cannot be negative")
+        return v
+
+    @field_validator("db_pool_size")
+    @classmethod
+    def validate_pool_size(cls, v: int) -> int:
+        if v <= 0:
+            raise ValueError("db_pool_size must be greater than 0")
+        return v
+
+    @model_validator(mode="after")
+    def validate_chunk_boundaries(self) -> "Settings":
+        if self.chunk_overlap >= self.chunk_size:
+            raise ValueError(
+                f"chunk_overlap ({self.chunk_overlap}) must be strictly less than chunk_size ({self.chunk_size})"
+            )
+        return self
 
     model_config = SettingsConfigDict(
         env_prefix="WEIRWISE_",

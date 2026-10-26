@@ -1,6 +1,5 @@
 """Basic RAG workflow example using the Weirwise Python SDK."""
 
-import time
 import os
 from weirwise import Weirwise
 
@@ -31,8 +30,9 @@ doc = client.documents.upload(knowledge_base_id=kb.id, path=sample_file)
 print(f"Uploaded: {doc.filename} (ID: {doc.id}, Status: {doc.status})")
 
 # Allow ingestion processing
-print("\n[3] Waiting for ingestion to process...")
-time.sleep(2)
+print("\n[3] Waiting for document ingestion to complete...")
+doc = client.documents.wait_for_completion(doc.id, timeout=30.0, poll_interval=0.5)
+print(f"Document ingestion finished with status: {doc.status}")
 
 print("\n[4] Performing Vector Similarity Search...")
 results = client.search(

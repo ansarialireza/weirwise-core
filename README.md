@@ -46,7 +46,12 @@ Weirwise Core provides a self-hostable, production-ready Retrieval-Augmented Gen
 docker compose up -d
 ```
 
-### 2. Create Tenant & API Key
+### 2. Verify Database & Extension Diagnostics
+```bash
+docker compose exec server python -m server.app.cli check-db
+```
+
+### 3. Create Tenant & API Key
 ```bash
 docker compose exec server python -m server.app.cli admin create-tenant --name "My Workspace"
 ```
@@ -87,6 +92,9 @@ doc = client.documents.upload(
     knowledge_base_id=kb.id,
     path="./docs/handbook.pdf",
 )
+
+# Wait for ingestion to finish processing
+client.documents.wait_for_completion(doc.id, timeout=30.0)
 
 # 3. Search Indexed Knowledge
 results = client.search(

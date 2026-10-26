@@ -60,3 +60,8 @@ jobs:
           WEIRWISE_DATABASE_SYNC_URL: postgresql://postgres:postgres@localhost:5432/weirwise
         run: |
           pytest server/tests packages/python-sdk/tests
+
+      - name: Verify SDK packaging and distribution build
+        run: |
+          python -m pip install build
+          python -m build packages/python-sdk

@@ -94,6 +94,12 @@ class SearchRequest(BaseModel):
     knowledge_base_id: UUID
     query: str = Field(..., min_length=1)
     top_k: int = Field(default=4, ge=1, le=50)
+    score_threshold: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="Optional minimum cosine similarity score threshold (0.0 to 1.0).",
+    )
 
 
 class SearchResultItem(BaseModel):

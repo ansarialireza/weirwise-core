@@ -420,6 +420,7 @@ async def search_knowledge(
         query=payload.query,
         embedding_provider=provider,
         top_k=payload.top_k,
+        score_threshold=payload.score_threshold,
     )
 
     items = [SearchResultItem(**r) for r in results]

@@ -16,9 +16,13 @@ async def retrieve_relevant_chunks(
     query: str,
     embedding_provider: EmbeddingProvider,
     top_k: int = 4,
+    score_threshold: Optional[float] = None,
     metadata_filters: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
-    """Retrieve top-k chunks for query using pgvector cosine distance, scoped to tenant & KB."""
+    """Retrieve top-k chunks for query using pgvector cosine distance, scoped to tenant & KB.
+
+    score_threshold (optional): filters out chunks whose similarity_score is strictly less than this threshold.
+    """
     # 1. Generate query embedding
     query_embeddings = await embedding_provider.get_embeddings([query])
     query_vector = query_embeddings[0]
@@ -34,13 +38,20 @@ async def retrieve_relevant_chunks(
         # Cosine distance ranges from 0 (identical) to 2 (opposite). Similarity = 1 - distance.
         distance_col = DocumentChunk.embedding.cosine_distance(query_vector).label("distance")
 
+        # Base filter conditions
+        conditions = [
+            DocumentChunk.tenant_id == tenant_id,
+            DocumentChunk.knowledge_base_id == knowledge_base_id,
+            DocumentChunk.embedding.isnot(None),
+        ]
+        # In cosine distance: similarity = 1 - distance >= score_threshold  <=>  distance <= 1 - score_threshold
+        if score_threshold is not None:
+            max_distance = 1.0 - float(score_threshold)
+            conditions.append(DocumentChunk.embedding.cosine_distance(query_vector) <= max_distance)
+
         stmt = (
             select(DocumentChunk, distance_col)
-            .where(
-                DocumentChunk.tenant_id == tenant_id,
-                DocumentChunk.knowledge_base_id == knowledge_base_id,
-                DocumentChunk.embedding.isnot(None),
-            )
+            .where(*conditions)
             .order_by(distance_col.asc())
             .limit(top_k)
         )
@@ -50,6 +61,8 @@ async def retrieve_relevant_chunks(
 
         for rank, (chunk, distance) in enumerate(rows, start=1):
             similarity_score = max(0.0, 1.0 - float(distance))
+            if score_threshold is not None and similarity_score < score_threshold:
+                continue
             results.append(
                 {
                     "chunk_id": chunk.id,
@@ -81,6 +94,8 @@ async def retrieve_relevant_chunks(
                 c_norm = np.linalg.norm(c_vec)
                 dot = np.dot(q_vec, c_vec)
                 sim = dot / (q_norm * c_norm) if (q_norm * c_norm) > 0 else 0.0
+                if score_threshold is not None and sim < score_threshold:
+                    continue
                 scored_chunks.append((chunk, float(sim)))
 
         scored_chunks.sort(key=lambda x: x[1], reverse=True)

@@ -1,0 +1,31 @@
+# Weirwise Core v1.0.0 Execution Log
+
+## 2026-10-26 - Stage 0: Baseline Verification & Environment Audit
+- **Work Completed**:
+  - Inspected working tree and commit history (`5ff0dd1`, matching `origin/main` at `v0.2.0`).
+  - Identified pre-existing unstaged/untracked stabilization changes (v0.3.0 changes including `score_threshold`, `upload_directory`, health endpoints, and test coverage).
+  - Executed baseline test suite (`34 passed in 51.46s`).
+  - Ran code quality checks: `ruff check .` (passed), `ruff format --check .` (46 files verified).
+  - Tested SDK packaging (`python -m build packages/python-sdk` -> `weirwise-0.3.0.tar.gz` and `.whl` generated).
+  - Tested Core packaging (`python -m build .` -> `weirwise_core-0.3.0.tar.gz` and `.whl` generated).
+  - Tested network/remote access: GitHub SSH connection reported `Permission denied (publickey)`; HTTPS credentials require interactive authentication not provisioned in environment. As mandated by recovery protocol (§4.3, §17, §19), local commits will be created incrementally and push results tracked explicitly.
+- **Files Changed / Tracked**:
+  - `docs/engineering/v1_execution_plan.md`
+  - `docs/engineering/v1_execution_log.md`
+- **Commands Executed**:
+  - `git status --short --branch`
+  - `git log -n 5 --oneline`
+  - `pytest` (identified requirement for `PYTHONPATH=".;packages/python-sdk"`)
+  - `$env:PYTHONPATH=".;packages/python-sdk"; pytest` (34 passed)
+  - `ruff check . ; ruff format --check .` (passed)
+  - `python -m build packages/python-sdk` (passed)
+  - `python -m build .` (passed)
+- **Remaining Work**:
+  - Stage 1: Commit initial baseline & stabilization state.
+  - Stage 2: Audit and harden retrieval pipeline and threshold mechanics.
+  - Stage 3: Audit ingestion lifecycle and directory ingestion resilience.
+  - Stage 4: Audit security, tenant isolation, and path traversal protections.
+  - Stage 5: Formalize Public API Contract and SDK ergonomics.
+  - Stage 6: Update documentation and quickstart examples.
+  - Stage 7: Synchronize v1.0.0 metadata, resolve packaging warnings, update CI.
+  - Stage 8: Release Candidate audit, v1.0.0 tagging, and release notes.

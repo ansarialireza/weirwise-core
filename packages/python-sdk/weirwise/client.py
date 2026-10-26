@@ -49,6 +49,50 @@ class DocumentsResource:
             res = self.client._post("/api/v1/documents/upload", data=data, files=files)
             return Document(**res["document"])
 
+    def upload_directory(
+        self,
+        knowledge_base_id: Union[str, UUID],
+        directory_path: str,
+        pattern: str = "*",
+        recursive: bool = False,
+        wait: bool = False,
+        timeout: float = 60.0,
+        poll_interval: float = 1.0,
+    ) -> List[Document]:
+        """Upload all matching files from a local directory into a Knowledge Base.
+
+        Args:
+            knowledge_base_id: Target knowledge base ID.
+            directory_path: Local directory path to scan.
+            pattern: Glob file matching pattern (default: "*").
+            recursive: Whether to scan subdirectories recursively (default: False).
+            wait: If True, waits for all uploaded documents to finish ingestion (default: False).
+            timeout: Maximum wait time per document if wait=True.
+            poll_interval: Polling frequency if wait=True.
+
+        Returns:
+            List of uploaded Document models in deterministic sorted order.
+        """
+        from pathlib import Path
+
+        dir_path = Path(directory_path)
+        if not dir_path.exists() or not dir_path.is_dir():
+            raise FileNotFoundError(f"Directory not found: {directory_path}")
+
+        glob_fn = dir_path.rglob if recursive else dir_path.glob
+        matched_files = sorted([p for p in glob_fn(pattern) if p.is_file()])
+
+        uploaded_docs = []
+        for file_path in matched_files:
+            doc = self.upload(knowledge_base_id=knowledge_base_id, path=str(file_path))
+            if wait:
+                doc = self.wait_for_completion(
+                    doc_id=doc.id, timeout=timeout, poll_interval=poll_interval
+                )
+            uploaded_docs.append(doc)
+
+        return uploaded_docs
+
     def get(self, doc_id: Union[str, UUID]) -> Document:
         res = self.client._get(f"/api/v1/documents/{doc_id}")
         return Document(**res)
@@ -178,12 +222,15 @@ class Weirwise:
         knowledge_base_id: Union[str, UUID],
         query: str,
         top_k: int = 4,
+        score_threshold: Optional[float] = None,
     ) -> List[SearchResult]:
         payload = {
             "knowledge_base_id": str(knowledge_base_id),
             "query": query,
             "top_k": top_k,
         }
+        if score_threshold is not None:
+            payload["score_threshold"] = score_threshold
         res = self._post("/api/v1/search", json=payload)
         return [SearchResult(**item) for item in res["results"]]
 

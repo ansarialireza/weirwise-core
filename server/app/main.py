@@ -31,7 +31,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Weirwise Core API",
     description="Open-source lightweight, modular RAG infrastructure for developers.",
-    version="0.1.0",
+    version=settings.app_version,
     lifespan=lifespan,
 )
 
@@ -46,7 +46,7 @@ app.add_middleware(
 
 @app.get("/health/live", tags=["Health"], response_model=HealthResponse)
 async def health_live():
-    return HealthResponse(status="alive", database="unverified", version="0.1.0")
+    return HealthResponse(status="alive", database="unverified", version=settings.app_version)
 
 
 @app.get("/health/ready", tags=["Health"], response_model=HealthResponse)
@@ -60,7 +60,7 @@ async def health_ready(db: AsyncSession = Depends(get_db)):
     return HealthResponse(
         status="ready" if db_status == "healthy" else "degraded",
         database=db_status,
-        version="0.1.0",
+        version=settings.app_version,
     )
 
 
