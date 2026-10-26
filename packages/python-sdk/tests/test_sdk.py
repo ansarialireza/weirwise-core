@@ -25,3 +25,9 @@ def test_sdk_error_handling():
     mock_resp_404 = Response(404, text="Resource not found")
     with pytest.raises(NotFoundError):
         client._handle_response(mock_resp_404)
+
+
+def test_sdk_context_manager():
+    with Weirwise(base_url="http://localhost:8000", api_key="ww_test") as client:
+        assert client.client.is_closed is False
+    assert client.client.is_closed is True

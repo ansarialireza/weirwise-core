@@ -96,10 +96,12 @@ doc = client.documents.upload(
 # Wait for ingestion to finish processing
 client.documents.wait_for_completion(doc.id, timeout=30.0)
 
-# 3. Search Indexed Knowledge
+# 3. Search Indexed Knowledge (with optional score threshold)
 results = client.search(
     knowledge_base_id=kb.id,
     query="How does authentication work?",
+    top_k=4,
+    score_threshold=0.7,
 )
 for r in results:
     print(r.similarity_score, r.content)

@@ -1,4 +1,4 @@
-# Weirwise Core API Contract (v0.1.0)
+# Weirwise Core API Contract (v1.0.0)
 
 ## Overview
 Weirwise Core provides a modular, lightweight HTTP REST API for multi-tenant document ingestion, vector retrieval, and RAG assistant execution.
@@ -18,26 +18,36 @@ API keys are hashed (SHA-256) on creation. The raw key is never stored in plaint
 ## Endpoints
 
 ### 1. Health Checks
-- `GET /health/live`: Unauthenticated liveness probe.
-- `GET /health/ready`: Database connectivity readiness check.
+- `GET /health/live`: Unauthenticated liveness probe returning `{"status": "alive", "database": "unverified", "version": "1.0.0"}`.
+- `GET /health/ready`: Database connectivity readiness check returning `{"status": "ready" | "degraded", "database": "healthy" | "unreachable", "version": "1.0.0"}`.
 
 ### 2. Knowledge Bases
 - `POST /api/v1/knowledge-bases`: Create a knowledge base scoped to authenticated tenant.
   - Body: `{"name": str, "description": Optional[str]}`
-- `GET /api/v1/knowledge-bases`: List all knowledge bases for tenant.
+- `GET /api/v1/knowledge-bases`: List all knowledge bases for tenant (supports `limit: int = 50, offset: int = 0`).
 - `GET /api/v1/knowledge-bases/{kb_id}`: Retrieve a knowledge base by ID.
-- `DELETE /api/v1/knowledge-bases/{kb_id}`: Delete knowledge base and cascade delete documents and chunks.
+- `DELETE /api/v1/knowledge-bases/{kb_id}`: Delete knowledge base and cascade delete documents and chunks (HTTP 204).
 
 ### 3. Documents
 - `POST /api/v1/documents/upload`: Upload file (`multipart/form-data`) with `knowledge_base_id` and `file`.
-  - Enqueues asynchronous ingestion job and returns HTTP 202.
+  - Validates file size against `WEIRWISE_MAX_UPLOAD_SIZE_BYTES` (HTTP 413 if exceeded).
+  - Enqueues asynchronous ingestion job and returns HTTP 202 with `DocumentUploadResponse`.
 - `GET /api/v1/documents/{doc_id}`: Retrieve document status and metadata.
-- `GET /api/v1/knowledge-bases/{kb_id}/documents`: List documents in knowledge base.
-- `DELETE /api/v1/documents/{doc_id}`: Delete document and its chunk vectors.
+- `GET /api/v1/knowledge-bases/{kb_id}/documents`: List documents in knowledge base (supports pagination).
+- `DELETE /api/v1/documents/{doc_id}`: Delete document and its chunk vectors (HTTP 204).
 
 ### 4. Vector Search & Retrieval
 - `POST /api/v1/search`:
-  - Request: `{"knowledge_base_id": UUID, "query": str, "top_k": int}`
+  - Request:
+    ```json
+    {
+      "knowledge_base_id": "UUID",
+      "query": "str (min_length=1)",
+      "top_k": 4,
+      "score_threshold": 0.75
+    }
+    ```
+    - `score_threshold` (optional float between 0.0 and 1.0): Filters results to only those whose cosine similarity meets or exceeds this threshold.
   - Response:
     ```json
     {
