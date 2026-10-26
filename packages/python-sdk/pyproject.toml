@@ -4,13 +4,22 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "weirwise"
-version = "0.3.0"
+version = "1.0.0"
 description = "Official Python SDK for Weirwise Core - Open-Source RAG Infrastructure"
 readme = "README.md"
 requires-python = ">=3.9"
 license = "MIT"
 authors = [
     { name = "Weirwise Contributors" }
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 dependencies = [
     "httpx>=0.25.0",

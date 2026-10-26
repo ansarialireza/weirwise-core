@@ -6,7 +6,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     # App & API Version
-    app_version: str = "0.3.0"
+    app_version: str = "1.0.0"
 
     # Environment & Logging
     env: str = "development"

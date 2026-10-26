@@ -61,7 +61,8 @@ jobs:
         run: |
           pytest server/tests packages/python-sdk/tests
 
-      - name: Verify SDK packaging and distribution build
+      - name: Verify Core and SDK packaging and distribution build
         run: |
           python -m pip install build
           python -m build packages/python-sdk
+          python -m build .

@@ -14,7 +14,7 @@ async def test_health_live_endpoint_version():
         data = response.json()
         assert data["status"] == "alive"
         assert data["version"] == settings.app_version
-        assert data["version"] == "0.3.0"
+        assert data["version"] == "1.0.0"
 
 
 @pytest.mark.asyncio
@@ -25,7 +25,7 @@ async def test_health_ready_endpoint_version():
         assert response.status_code == 200
         data = response.json()
         assert data["version"] == settings.app_version
-        assert data["version"] == "0.3.0"
+        assert data["version"] == "1.0.0"
 
 
 @pytest.mark.asyncio
