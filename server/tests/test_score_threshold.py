@@ -236,3 +236,252 @@ async def test_native_pgvector_score_threshold_real_db():
         )
         assert len(res_high) == 1
         assert res_high[0]["content"] == "Perfect Match"
+
+
+@pytest.mark.asyncio
+async def test_vector_similarity_semantics_parity():
+    """Verify exact parity between PostgreSQL/pgvector and SQLite fallback across identical,
+
+    orthogonal, opposing, zero, and tied vectors.
+    """
+    from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+    from server.app.database import Base, AsyncSessionLocal, engine
+    from server.app.models import Tenant, KnowledgeBase, Document, DocumentChunk
+    from sqlalchemy import text
+
+    # Known test vectors
+    # Query: [1, 0, 0, ...]
+    v_ident = [1.0] + [0.0] * 1535  # sim = 1.0
+    v_ortho = [0.0, 1.0] + [0.0] * 1534  # sim = 0.0
+    v_oppose = [-1.0] + [0.0] * 1535  # raw cos = -1.0 -> clamped to 0.0
+    v_zero = [0.0] * 1536  # norm 0.0 -> clamped to 0.0
+    v_tie1 = [0.5, 0.5] + [0.0] * 1534  # tied vector 1
+    v_tie2 = [0.5, 0.5] + [0.0] * 1534  # tied vector 2
+
+    class ParityProvider:
+        async def get_embeddings(self, texts):
+            return [[1.0] + [0.0] * 1535 for _ in texts]
+
+    # 1. Test in SQLite fallback engine
+    sqlite_engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with sqlite_engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    sqlite_maker = async_sessionmaker(sqlite_engine, expire_on_commit=False)
+
+    async with sqlite_maker() as session:
+        t = Tenant(name="SQLiteParity")
+        session.add(t)
+        await session.flush()
+        kb = KnowledgeBase(tenant_id=t.id, name="KB")
+        session.add(kb)
+        await session.flush()
+        doc = Document(
+            tenant_id=t.id,
+            knowledge_base_id=kb.id,
+            filename="d.txt",
+            storage_path="d.txt",
+            mime_type="text/plain",
+            file_size=1,
+            content_hash="h",
+            status="completed",
+        )
+        session.add(doc)
+        await session.flush()
+
+        chunks = [
+            DocumentChunk(
+                tenant_id=t.id,
+                knowledge_base_id=kb.id,
+                document_id=doc.id,
+                chunk_index=0,
+                content="Identical",
+                embedding=v_ident,
+            ),
+            DocumentChunk(
+                tenant_id=t.id,
+                knowledge_base_id=kb.id,
+                document_id=doc.id,
+                chunk_index=1,
+                content="Orthogonal",
+                embedding=v_ortho,
+            ),
+            DocumentChunk(
+                tenant_id=t.id,
+                knowledge_base_id=kb.id,
+                document_id=doc.id,
+                chunk_index=2,
+                content="Opposing",
+                embedding=v_oppose,
+            ),
+            DocumentChunk(
+                tenant_id=t.id,
+                knowledge_base_id=kb.id,
+                document_id=doc.id,
+                chunk_index=3,
+                content="Zero",
+                embedding=v_zero,
+            ),
+            DocumentChunk(
+                tenant_id=t.id,
+                knowledge_base_id=kb.id,
+                document_id=doc.id,
+                chunk_index=4,
+                content="Tie1",
+                embedding=v_tie1,
+            ),
+            DocumentChunk(
+                tenant_id=t.id,
+                knowledge_base_id=kb.id,
+                document_id=doc.id,
+                chunk_index=5,
+                content="Tie2",
+                embedding=v_tie2,
+            ),
+        ]
+        session.add_all(chunks)
+        await session.commit()
+
+        # Test A: No threshold
+        res_no_thresh = await retrieve_relevant_chunks(
+            session, t.id, kb.id, "q", ParityProvider(), top_k=10
+        )
+        scores = {r["content"]: r["similarity_score"] for r in res_no_thresh}
+        assert scores["Identical"] == 1.0
+        assert scores["Orthogonal"] == 0.0
+        # Opposing must be clamped to 0.0 (not -1.0)
+        assert scores["Opposing"] == 0.0
+        assert scores["Zero"] == 0.0
+
+        # Deterministic tie-breaking on tied chunks Tie1 and Tie2 (chunk_index 4 vs 5)
+        tie_ranks = [r["content"] for r in res_no_thresh if r["content"] in ("Tie1", "Tie2")]
+        assert tie_ranks == ["Tie1", "Tie2"]
+
+        # Test B: score_threshold = 0.0 (exact zero threshold boundary)
+        # Raw similarities: Identical (1.0), Tie1/Tie2 (~0.71), Orthogonal (0.0), Opposing (-1.0).
+        # raw_sim >= 0.0 includes Identical, Tie1, Tie2, and Orthogonal; excludes Opposing (-1.0).
+        res_thresh_zero = await retrieve_relevant_chunks(
+            session, t.id, kb.id, "q", ParityProvider(), top_k=10, score_threshold=0.0
+        )
+        zero_contents = [r["content"] for r in res_thresh_zero]
+        assert "Identical" in zero_contents
+        assert "Orthogonal" in zero_contents
+        assert "Tie1" in zero_contents
+        assert "Tie2" in zero_contents
+        assert "Opposing" not in zero_contents
+
+        # Test C: score_threshold = 0.5 (positive threshold)
+        res_thresh_pos = await retrieve_relevant_chunks(
+            session, t.id, kb.id, "q", ParityProvider(), top_k=10, score_threshold=0.5
+        )
+        pos_contents = [r["content"] for r in res_thresh_pos]
+        assert "Identical" in pos_contents
+        assert "Tie1" in pos_contents
+        assert "Tie2" in pos_contents
+        assert "Orthogonal" not in pos_contents
+        assert "Opposing" not in pos_contents
+
+    # 2. Test in live PostgreSQL / pgvector
+    async with engine.begin() as conn:
+        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+        await conn.run_sync(Base.metadata.create_all)
+
+    async with AsyncSessionLocal() as session:
+        t_pg = Tenant(name="PgParity")
+        session.add(t_pg)
+        await session.flush()
+        kb_pg = KnowledgeBase(tenant_id=t_pg.id, name="PgKB")
+        session.add(kb_pg)
+        await session.flush()
+        doc_pg = Document(
+            tenant_id=t_pg.id,
+            knowledge_base_id=kb_pg.id,
+            filename="d.txt",
+            storage_path="d.txt",
+            mime_type="text/plain",
+            file_size=1,
+            content_hash="h_pg",
+            status="completed",
+        )
+        session.add(doc_pg)
+        await session.flush()
+
+        pg_chunks = [
+            DocumentChunk(
+                tenant_id=t_pg.id,
+                knowledge_base_id=kb_pg.id,
+                document_id=doc_pg.id,
+                chunk_index=0,
+                content="Identical",
+                embedding=v_ident,
+            ),
+            DocumentChunk(
+                tenant_id=t_pg.id,
+                knowledge_base_id=kb_pg.id,
+                document_id=doc_pg.id,
+                chunk_index=1,
+                content="Orthogonal",
+                embedding=v_ortho,
+            ),
+            DocumentChunk(
+                tenant_id=t_pg.id,
+                knowledge_base_id=kb_pg.id,
+                document_id=doc_pg.id,
+                chunk_index=2,
+                content="Opposing",
+                embedding=v_oppose,
+            ),
+            DocumentChunk(
+                tenant_id=t_pg.id,
+                knowledge_base_id=kb_pg.id,
+                document_id=doc_pg.id,
+                chunk_index=3,
+                content="Tie1",
+                embedding=v_tie1,
+            ),
+            DocumentChunk(
+                tenant_id=t_pg.id,
+                knowledge_base_id=kb_pg.id,
+                document_id=doc_pg.id,
+                chunk_index=4,
+                content="Tie2",
+                embedding=v_tie2,
+            ),
+        ]
+        session.add_all(pg_chunks)
+        await session.commit()
+
+        # PG Query with no threshold
+        pg_res = await retrieve_relevant_chunks(
+            session, t_pg.id, kb_pg.id, "q", ParityProvider(), top_k=10
+        )
+        pg_scores = {r["content"]: r["similarity_score"] for r in pg_res}
+        assert pg_scores["Identical"] == 1.0
+        assert pg_scores["Orthogonal"] == 0.0
+        assert pg_scores["Opposing"] == 0.0
+
+        # PG Query with positive threshold 0.5
+        pg_res_pos = await retrieve_relevant_chunks(
+            session, t_pg.id, kb_pg.id, "q", ParityProvider(), top_k=10, score_threshold=0.5
+        )
+        pg_pos_contents = [r["content"] for r in pg_res_pos]
+        assert "Identical" in pg_pos_contents
+        assert "Tie1" in pg_pos_contents
+        assert "Tie2" in pg_pos_contents
+        assert "Orthogonal" not in pg_pos_contents
+        assert "Opposing" not in pg_pos_contents
+
+        # PG Query with exact zero threshold 0.0 (cosine_distance <= 1.0)
+        # Cosine distance: Identical (0.0 <= 1.0), Orthogonal (1.0 <= 1.0), Opposing (2.0 > 1.0).
+        # Opposing is excluded; Identical, Tie1, Tie2, and Orthogonal are included.
+        pg_res_zero = await retrieve_relevant_chunks(
+            session, t_pg.id, kb_pg.id, "q", ParityProvider(), top_k=10, score_threshold=0.0
+        )
+        pg_zero_contents = [r["content"] for r in pg_res_zero]
+        assert "Identical" in pg_zero_contents
+        assert "Orthogonal" in pg_zero_contents
+        assert "Tie1" in pg_zero_contents
+        assert "Tie2" in pg_zero_contents
+        assert "Opposing" not in pg_zero_contents
+
+        # Verify exact set parity between SQLite fallback and PostgreSQL at threshold 0.0
+        assert set(zero_contents) - {"Zero"} == set(pg_zero_contents)

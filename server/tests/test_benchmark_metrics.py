@@ -37,3 +37,30 @@ def test_recall_metric_monotonicity_and_nesting():
     assert r5 == 0.0
     assert r10 == 0.2
     assert r5 <= r10
+
+
+def test_deterministic_independent_query_generation():
+    """Verify that dataset and query generation with independent RNG instances are strictly deterministic."""
+    from benchmarks.retrieval_benchmark import generate_unit_vector
+    import random
+
+    # Two separate runs initializing with the same seeds
+    rng_ds1 = random.Random(42)
+    ds1_v0 = generate_unit_vector(128, rng=rng_ds1)
+    ds1_v1 = generate_unit_vector(128, rng=rng_ds1)
+
+    rng_q1 = random.Random(100)
+    q1_v0 = generate_unit_vector(128, rng=rng_q1)
+
+    rng_ds2 = random.Random(42)
+    ds2_v0 = generate_unit_vector(128, rng=rng_ds2)
+    ds2_v1 = generate_unit_vector(128, rng=rng_ds2)
+
+    rng_q2 = random.Random(100)
+    q2_v0 = generate_unit_vector(128, rng=rng_q2)
+
+    assert ds1_v0 == ds2_v0
+    assert ds1_v1 == ds2_v1
+    assert q1_v0 == q2_v0
+    # Queries should not match dataset
+    assert q1_v0 != ds1_v0

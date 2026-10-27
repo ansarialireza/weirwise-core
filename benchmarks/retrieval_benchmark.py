@@ -25,8 +25,9 @@ WARMUP_COUNT = 20
 TOP_K = 10
 
 
-def generate_unit_vector(dim: int) -> list[float]:
-    vec = [random.gauss(0, 1) for _ in range(dim)]
+def generate_unit_vector(dim: int, rng: random.Random | None = None) -> list[float]:
+    r = rng if rng is not None else random
+    vec = [r.gauss(0, 1) for _ in range(dim)]
     norm = math.sqrt(sum(x * x for x in vec))
     return [x / norm for x in vec]
 
@@ -77,9 +78,11 @@ def run_benchmark():
                 );
             """)
 
-            # Seed dataset
-            random.seed(42)
-            dataset = [generate_unit_vector(DIMENSION) for _ in range(DATASET_SIZE)]
+            # Seed dataset with independent RNG (seed 42)
+            dataset_rng = random.Random(42)
+            dataset = [
+                generate_unit_vector(DIMENSION, rng=dataset_rng) for _ in range(DATASET_SIZE)
+            ]
 
             batch_size = 250
             for i in range(0, DATASET_SIZE, batch_size):
@@ -103,8 +106,12 @@ def run_benchmark():
             idx_duration = time.perf_counter() - start_idx
             print(f"[+] HNSW index created in {idx_duration:.2f}s.")
 
-            # Generate evaluation queries
-            queries = [generate_unit_vector(DIMENSION) for _ in range(QUERY_COUNT + WARMUP_COUNT)]
+            # Generate evaluation queries using independent RNG (seed 100)
+            query_rng = random.Random(100)
+            queries = [
+                generate_unit_vector(DIMENSION, rng=query_rng)
+                for _ in range(QUERY_COUNT + WARMUP_COUNT)
+            ]
             warmup_queries = queries[:WARMUP_COUNT]
             eval_queries = queries[WARMUP_COUNT:]
 
@@ -120,6 +127,17 @@ def run_benchmark():
             # 1. Exact Search Baseline (Sequential Scan)
             print("[*] Evaluating Exact Search baseline (enable_indexscan = off)...")
             cur.execute("SET enable_indexscan = off;")
+
+            # Verify query plan uses Sequential Scan without index scan
+            sample_q = vector_to_literal(eval_queries[0])
+            cur.execute(
+                f"EXPLAIN SELECT id FROM benchmark_vectors ORDER BY embedding <=> '{sample_q}' LIMIT {TOP_K};"
+            )
+            exact_plan_lines = [r[0] for r in cur.fetchall()]
+            exact_plan_text = "\n".join(exact_plan_lines)
+            uses_seq_scan = "Seq Scan" in exact_plan_text and "Index Scan" not in exact_plan_text
+            print(f"  Seq Scan Verified in EXPLAIN: {uses_seq_scan}")
+
             exact_latencies_ms = []
             exact_top_results = []
 

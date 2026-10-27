@@ -92,11 +92,19 @@ async def retrieve_relevant_chunks(
             if chunk.embedding is not None:
                 c_vec = np.array(chunk.embedding)
                 c_norm = np.linalg.norm(c_vec)
-                dot = np.dot(q_vec, c_vec)
-                sim = dot / (q_norm * c_norm) if (q_norm * c_norm) > 0 else 0.0
-                if score_threshold is not None and sim < score_threshold:
+                # Compute raw cosine similarity; if either vector has zero norm, raw cosine is 0.0
+                raw_sim = (
+                    float(np.dot(q_vec, c_vec) / (q_norm * c_norm))
+                    if (q_norm * c_norm) > 0
+                    else 0.0
+                )
+                # Filter against raw cosine similarity: identical to PostgreSQL's distance <= (1.0 - threshold)
+                # because distance = 1.0 - raw_sim <=> 1.0 - distance = raw_sim >= threshold
+                if score_threshold is not None and raw_sim < score_threshold:
                     continue
-                scored_chunks.append((chunk, float(sim)))
+                # Public similarity score contract clamps non-positive similarity to 0.0 (domain [0.0, 1.0])
+                sim = max(0.0, raw_sim)
+                scored_chunks.append((chunk, sim))
 
         scored_chunks.sort(key=lambda x: (-x[1], x[0].chunk_index, str(x[0].id)))
         top_chunks = scored_chunks[:top_k]
