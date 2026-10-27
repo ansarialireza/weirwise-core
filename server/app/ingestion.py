@@ -45,9 +45,11 @@ def chunk_text(text: str, chunk_size: int = 500, chunk_overlap: int = 50) -> Lis
             continue
 
         para_len = len(para)
-        if current_length + para_len + 2 <= chunk_size:
+        # If adding this paragraph fits within chunk_size:
+        added_len = para_len if not current_chunk else para_len + 2
+        if current_length + added_len <= chunk_size:
             current_chunk.append(para)
-            current_length += para_len + 2
+            current_length += added_len
         else:
             if current_chunk:
                 chunk_str = "\n\n".join(current_chunk)
@@ -55,7 +57,7 @@ def chunk_text(text: str, chunk_size: int = 500, chunk_overlap: int = 50) -> Lis
                 # Overlap handling
                 overlap_text = chunk_str[-chunk_overlap:] if len(chunk_str) > chunk_overlap else ""
                 current_chunk = [overlap_text, para] if overlap_text else [para]
-                current_length = sum(len(p) for p in current_chunk) + 2
+                current_length = sum(len(p) for p in current_chunk) + (2 if overlap_text else 0)
             else:
                 # Single paragraph exceeds chunk_size, split by sentences or characters
                 for i in range(0, para_len, chunk_size - chunk_overlap):

@@ -52,7 +52,7 @@ async def retrieve_relevant_chunks(
         stmt = (
             select(DocumentChunk, distance_col)
             .where(*conditions)
-            .order_by(distance_col.asc())
+            .order_by(distance_col.asc(), DocumentChunk.chunk_index.asc(), DocumentChunk.id.asc())
             .limit(top_k)
         )
 
@@ -98,7 +98,7 @@ async def retrieve_relevant_chunks(
                     continue
                 scored_chunks.append((chunk, float(sim)))
 
-        scored_chunks.sort(key=lambda x: x[1], reverse=True)
+        scored_chunks.sort(key=lambda x: (-x[1], x[0].chunk_index, str(x[0].id)))
         top_chunks = scored_chunks[:top_k]
 
         for rank, (chunk, score) in enumerate(top_chunks, start=1):
