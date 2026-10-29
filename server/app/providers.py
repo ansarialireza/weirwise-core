@@ -44,6 +44,7 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
         payload = {
             "input": texts,
             "model": self.model,
+            "dimensions": self.dimensions,
         }
 
         async with httpx.AsyncClient(timeout=self.timeout) as client:
