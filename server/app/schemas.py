@@ -100,6 +100,10 @@ class SearchRequest(BaseModel):
         le=1.0,
         description="Optional minimum cosine similarity score threshold (0.0 to 1.0).",
     )
+    metadata_filters: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Optional key-value pairs to filter chunk metadata.",
+    )
 
 
 class SearchResultItem(BaseModel):

@@ -44,10 +44,12 @@ API keys are hashed (SHA-256) on creation. The raw key is never stored in plaint
       "knowledge_base_id": "UUID",
       "query": "str (min_length=1)",
       "top_k": 4,
-      "score_threshold": 0.75
+      "score_threshold": 0.75,
+      "metadata_filters": {"category": "engineering"}
     }
     ```
     - `score_threshold` (optional float between 0.0 and 1.0): Filters results to only those whose cosine similarity meets or exceeds this threshold.
+    - `metadata_filters` (optional JSON object): Key-value pairs for metadata filtering.
   - Response:
     ```json
     {

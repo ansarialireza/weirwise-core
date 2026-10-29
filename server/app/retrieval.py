@@ -49,6 +49,14 @@ async def retrieve_relevant_chunks(
             max_distance = 1.0 - float(score_threshold)
             conditions.append(DocumentChunk.embedding.cosine_distance(query_vector) <= max_distance)
 
+        # Apply metadata filtering (JSON containment / exact match)
+        if metadata_filters:
+            from sqlalchemy import cast
+            from sqlalchemy.dialects.postgresql import JSONB
+
+            for key, val in metadata_filters.items():
+                conditions.append(cast(DocumentChunk.chunk_metadata, JSONB).contains({key: val}))
+
         stmt = (
             select(DocumentChunk, distance_col)
             .where(*conditions)
@@ -89,6 +97,12 @@ async def retrieve_relevant_chunks(
         q_norm = np.linalg.norm(q_vec)
 
         for chunk in chunks:
+            # Metadata filter check for fallback
+            if metadata_filters:
+                meta = chunk.chunk_metadata or {}
+                if not all(meta.get(k) == v for k, v in metadata_filters.items()):
+                    continue
+
             if chunk.embedding is not None:
                 c_vec = np.array(chunk.embedding)
                 c_norm = np.linalg.norm(c_vec)

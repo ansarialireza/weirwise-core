@@ -223,6 +223,7 @@ class Weirwise:
         query: str,
         top_k: int = 4,
         score_threshold: Optional[float] = None,
+        metadata_filters: Optional[dict] = None,
     ) -> List[SearchResult]:
         payload = {
             "knowledge_base_id": str(knowledge_base_id),
@@ -231,6 +232,8 @@ class Weirwise:
         }
         if score_threshold is not None:
             payload["score_threshold"] = score_threshold
+        if metadata_filters is not None:
+            payload["metadata_filters"] = metadata_filters
         res = self._post("/api/v1/search", json=payload)
         return [SearchResult(**item) for item in res["results"]]
 

@@ -189,3 +189,128 @@ async def test_search_endpoint_with_null_and_boundary_score_thresholds():
             headers=headers,
         )
         assert r_over.status_code == 422
+
+        # 6. Correlation ID Propagation and Generation
+        r_corr = await client.get("/health/live", headers={"X-Request-ID": "test-trace-12345"})
+        assert r_corr.headers.get("X-Request-ID") == "test-trace-12345"
+        assert "X-Response-Time-Ms" in r_corr.headers
+
+        # Auto-generated Correlation ID
+        r_auto_corr = await client.get("/health/live")
+        assert r_auto_corr.headers.get("X-Request-ID") is not None
+        assert len(r_auto_corr.headers.get("X-Request-ID")) > 10
+
+
+@pytest.mark.asyncio
+async def test_search_endpoint_with_metadata_filters():
+    """Verify search endpoint filters results by metadata key-value pairs."""
+    transport = ASGITransport(app=app)
+    raw_key, key_hash = generate_api_key(prefix="ww_meta_")
+
+    async with AsyncSessionLocal() as session:
+        t = Tenant(name="Meta Filter Tenant")
+        session.add(t)
+        await session.flush()
+        k = APIKey(tenant_id=t.id, key_hash=key_hash, name="meta-key")
+        session.add(k)
+        kb = KnowledgeBase(tenant_id=t.id, name="Meta KB")
+        session.add(kb)
+        await session.flush()
+
+        doc = Document(
+            tenant_id=t.id,
+            knowledge_base_id=kb.id,
+            filename="meta.txt",
+            storage_path="mock/meta.txt",
+            mime_type="text/plain",
+            file_size=100,
+            content_hash="metahash",
+            status="completed",
+        )
+        session.add(doc)
+        await session.flush()
+
+        fixed_vec = [1.0] + [0.0] * 1535
+        c1 = DocumentChunk(
+            id=uuid.uuid4(),
+            tenant_id=t.id,
+            knowledge_base_id=kb.id,
+            document_id=doc.id,
+            chunk_index=0,
+            content="Alpha section",
+            embedding=fixed_vec,
+            chunk_metadata={"category": "finance", "confidential": True},
+        )
+        c2 = DocumentChunk(
+            id=uuid.uuid4(),
+            tenant_id=t.id,
+            knowledge_base_id=kb.id,
+            document_id=doc.id,
+            chunk_index=1,
+            content="Beta section",
+            embedding=fixed_vec,
+            chunk_metadata={"category": "engineering", "confidential": False},
+        )
+        session.add_all([c1, c2])
+        await session.commit()
+        kb_id = str(kb.id)
+
+    headers = {"X-API-Key": raw_key}
+
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # Search with metadata filter category=finance
+        r_finance = await client.post(
+            "/api/v1/search",
+            json={
+                "knowledge_base_id": kb_id,
+                "query": "section",
+                "metadata_filters": {"category": "finance"},
+            },
+            headers=headers,
+        )
+        assert r_finance.status_code == 200
+        res_data = r_finance.json()["results"]
+        assert len(res_data) == 1
+        assert res_data[0]["content"] == "Alpha section"
+
+        # Search with non-matching metadata filter
+        r_none = await client.post(
+            "/api/v1/search",
+            json={
+                "knowledge_base_id": kb_id,
+                "query": "section",
+                "metadata_filters": {"category": "hr"},
+            },
+            headers=headers,
+        )
+        assert r_none.status_code == 200
+        assert len(r_none.json()["results"]) == 0
+
+
+@pytest.mark.asyncio
+async def test_middleware_request_id_sanitization():
+    """Verify that malformed or malicious X-Request-ID headers are sanitized to a valid UUID."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # 1. Valid custom request ID should be echoed
+        resp_valid = await client.get(
+            "/health/live", headers={"X-Request-ID": "valid-req-id_123.test"}
+        )
+        assert resp_valid.status_code == 200
+        assert resp_valid.headers["X-Request-ID"] == "valid-req-id_123.test"
+        assert "X-Response-Time-Ms" in resp_valid.headers
+
+        # 2. Malicious header injection / CRLF should be replaced with UUID
+        resp_crlf = await client.get(
+            "/health/live", headers={"X-Request-ID": "evil\r\nInjected: True"}
+        )
+        assert resp_crlf.status_code == 200
+        assert resp_crlf.headers["X-Request-ID"] != "evil\r\nInjected: True"
+        uuid.UUID(resp_crlf.headers["X-Request-ID"])  # Must be valid UUID
+
+        # 3. Oversized header (>128 chars) should be replaced with UUID
+        oversized_id = "a" * 200
+        resp_long = await client.get("/health/live", headers={"X-Request-ID": oversized_id})
+        assert resp_long.status_code == 200
+        assert resp_long.headers["X-Request-ID"] != oversized_id
+        uuid.UUID(resp_long.headers["X-Request-ID"])

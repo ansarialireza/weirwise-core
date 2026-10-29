@@ -1,6 +1,9 @@
 import logging
+import uuid
+import time
+import re
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
@@ -11,6 +14,15 @@ from server.app.schemas import HealthResponse
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
+
+_REQUEST_ID_REGEX = re.compile(r"^[a-zA-Z0-9_\-\.\:\+]{1,128}$")
+
+
+def _sanitize_request_id(req_id: str | None) -> str:
+    """Validate and sanitize incoming correlation ID to prevent header injection or unbounded lengths."""
+    if req_id and _REQUEST_ID_REGEX.match(req_id):
+        return req_id
+    return str(uuid.uuid4())
 
 
 @asynccontextmanager
@@ -42,6 +54,20 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def correlation_id_middleware(request: Request, call_next):
+    # Validate and sanitize incoming X-Request-ID or generate new UUID
+    req_id = _sanitize_request_id(request.headers.get("X-Request-ID"))
+    start_time = time.perf_counter()
+    try:
+        response = await call_next(request)
+    finally:
+        duration_ms = round((time.perf_counter() - start_time) * 1000, 2)
+    response.headers["X-Request-ID"] = req_id
+    response.headers["X-Response-Time-Ms"] = str(duration_ms)
+    return response
 
 
 @app.get("/health/live", tags=["Health"], response_model=HealthResponse)

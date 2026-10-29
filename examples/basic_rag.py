@@ -5,9 +5,21 @@ from weirwise import Weirwise
 
 # 1. Initialize client
 # When running locally, ensure Weirwise Core server is running at http://localhost:8000
-API_KEY = os.getenv("WEIRWISE_API_KEY", "your-api-key-here")
+API_KEY = os.getenv("WEIRWISE_API_KEY")
+BASE_URL = os.getenv("WEIRWISE_BASE_URL", "http://localhost:8000")
 
-with Weirwise(base_url="http://localhost:8000", api_key=API_KEY) as client:
+if not API_KEY:
+    print("[INFO] WEIRWISE_API_KEY environment variable not set.")
+    print("       To test against a running Weirwise Core server:")
+    print("       1. Create a tenant: python -m server.app.cli admin create-tenant --name 'Demo'")
+    print("       2. Export the generated key: $env:WEIRWISE_API_KEY='ww_...'")
+    print("       3. Run this script again.")
+    print("\nExecuting in dry-run verification mode: Client initialized successfully.")
+    with Weirwise(base_url=BASE_URL, api_key="ww_demo_dryrun_key") as client:
+        print(f"Client configured for endpoint: {BASE_URL}")
+    exit(0)
+
+with Weirwise(base_url=BASE_URL, api_key=API_KEY) as client:
     print("[1] Creating Knowledge Base...")
     kb = client.knowledge_bases.create(
         name="Company Guidelines",
