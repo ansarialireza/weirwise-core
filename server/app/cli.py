@@ -1,10 +1,10 @@
 import sys
 import asyncio
 import argparse
-from sqlalchemy import text
+from sqlalchemy import select, text
 from server.app.database import AsyncSessionLocal, engine, Base
 from server.app.models import Tenant, APIKey
-from server.app.auth import generate_api_key
+from server.app.auth import generate_api_key, hash_api_key
 from server.app.config import get_settings
 
 
@@ -63,35 +63,49 @@ async def check_db_cmd() -> int:
         return 1
 
 
-async def create_tenant_cmd(tenant_name: str, key_name: str = "default"):
+async def create_tenant_cmd(
+    tenant_name: str, key_name: str = "default", raw_api_key: str | None = None
+):
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
     async with AsyncSessionLocal() as session:
-        # Create Tenant
-        tenant = Tenant(name=tenant_name, status="active")
-        session.add(tenant)
-        await session.flush()
+        # Check or Create Tenant
+        tenant_res = await session.execute(select(Tenant).where(Tenant.name == tenant_name))
+        tenant = tenant_res.scalars().first()
+        if not tenant:
+            tenant = Tenant(name=tenant_name, status="active")
+            session.add(tenant)
+            await session.flush()
 
-        # Generate API Key
-        raw_key, key_hash = generate_api_key(prefix="ww_")
-        api_key = APIKey(
-            tenant_id=tenant.id,
-            key_hash=key_hash,
-            name=key_name,
-            is_active=True,
-        )
-        session.add(api_key)
-        await session.commit()
+        # Generate or use provided API Key
+        if raw_api_key:
+            raw_key = raw_api_key
+            key_hash = hash_api_key(raw_key)
+        else:
+            raw_key, key_hash = generate_api_key(prefix="ww_")
+
+        key_res = await session.execute(select(APIKey).where(APIKey.key_hash == key_hash))
+        api_key = key_res.scalars().first()
+        if not api_key:
+            api_key = APIKey(
+                tenant_id=tenant.id,
+                key_hash=key_hash,
+                name=key_name,
+                is_active=True,
+            )
+            session.add(api_key)
+            await session.commit()
+            print(" [PASS] Created new API key.")
+        else:
+            print(" [INFO] API key already registered for this tenant.")
 
         print("=" * 60)
-        print(" Weirwise Tenant & API Key Created Successfully")
+        print(" Weirwise Tenant & API Key Configured Successfully")
         print("=" * 60)
         print(f" Tenant ID : {tenant.id}")
         print(f" Tenant Name: {tenant.name}")
-        print(f" API Key    : {raw_key}")
-        print("=" * 60)
-        print(" SAVE THIS KEY NOW! It will never be displayed again.")
+        print(f" Key Name   : {key_name}")
         print("=" * 60)
 
 
@@ -107,6 +121,9 @@ def cli():
     create_tenant_p.add_argument(
         "--key-name", default="default", help="Descriptive name for the API key"
     )
+    create_tenant_p.add_argument(
+        "--key", default=None, help="Explicit API key string to register (optional)"
+    )
 
     admin_sub.add_parser("check-db", help="Diagnose database connection and pgvector extension")
 
@@ -116,7 +133,7 @@ def cli():
     args = parser.parse_args()
 
     if args.command == "admin" and args.subcommand == "create-tenant":
-        asyncio.run(create_tenant_cmd(args.name, args.key_name))
+        asyncio.run(create_tenant_cmd(args.name, args.key_name, args.key))
     elif (args.command == "admin" and args.subcommand == "check-db") or args.command == "check-db":
         exit_code = asyncio.run(check_db_cmd())
         sys.exit(exit_code)
