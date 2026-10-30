@@ -14,6 +14,7 @@ build/
 # Local data & environment
 .env
 data/
+var/
 *.db
 *.sqlite
 

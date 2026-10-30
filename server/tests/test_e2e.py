@@ -8,7 +8,9 @@ from server.app.database import get_db, Base
 from server.app.models import Tenant, APIKey
 from server.app.auth import generate_api_key
 
-TEST_DB_FILE = "test_e2e.db"
+TEST_DB_FILE = os.path.join(
+    os.path.dirname(__file__), "..", "..", "var", "databases", "test", "test_e2e.db"
+)
 TEST_DATABASE_URL = f"sqlite+aiosqlite:///{TEST_DB_FILE}"
 
 engine = create_async_engine(TEST_DATABASE_URL, connect_args={"check_same_thread": False})

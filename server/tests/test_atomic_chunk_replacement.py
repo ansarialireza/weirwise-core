@@ -34,7 +34,7 @@ async def setup_db():
 
 async def test_failure_during_embedding_preserves_original_chunks():
     """Verify that failure during embedding generation leaves original chunks intact and updates job/document status."""
-    storage_dir = "./data/test_storage"
+    storage_dir = "./var/data/test_storage"
     os.makedirs(storage_dir, exist_ok=True)
     file_path = os.path.join(storage_dir, f"{uuid.uuid4()}.txt")
     with open(file_path, "w", encoding="utf-8") as f:
@@ -112,7 +112,7 @@ async def test_failure_during_embedding_preserves_original_chunks():
 
 async def test_worker_fencing_token_rejection():
     """Verify that a worker whose claim token was invalidated (due to lease expiration/reclaim) is rejected from committing."""
-    storage_dir = "./data/test_storage"
+    storage_dir = "./var/data/test_storage"
     os.makedirs(storage_dir, exist_ok=True)
     file_path = os.path.join(storage_dir, f"{uuid.uuid4()}.txt")
     with open(file_path, "w", encoding="utf-8") as f:
@@ -202,7 +202,7 @@ async def test_deterministic_stale_worker_cannot_overwrite_completed_results():
     6. Assert Worker A cannot replace Worker B's chunks, overwrite document status, or mark job completed.
     """
 
-    storage_dir = "./data/test_storage"
+    storage_dir = "./var/data/test_storage"
     os.makedirs(storage_dir, exist_ok=True)
     file_path = os.path.join(storage_dir, f"{uuid.uuid4()}_fencing.txt")
     with open(file_path, "w", encoding="utf-8") as f:

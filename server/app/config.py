@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     db_timeout_seconds: int = 30
 
     # Storage
-    storage_dir: str = "./data/storage"
+    storage_dir: str = "./var/data/storage"
     max_upload_size_bytes: int = 50 * 1024 * 1024  # 50MB
 
     # Ingestion & Chunking

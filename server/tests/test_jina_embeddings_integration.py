@@ -1,7 +1,6 @@
 import os
 import pytest
 import numpy as np
-import httpx
 from uuid import uuid4
 from sqlalchemy import text, select, delete
 from httpx import AsyncClient, ASGITransport
@@ -9,7 +8,7 @@ from httpx import AsyncClient, ASGITransport
 from server.app.config import Settings
 from server.app.providers import OpenAIEmbeddingProvider
 from server.app.database import AsyncSessionLocal, engine
-from server.app.models import Tenant, APIKey, KnowledgeBase, Document, DocumentChunk
+from server.app.models import Tenant, APIKey, DocumentChunk
 from server.app.auth import generate_api_key
 from server.app.main import app
 
@@ -138,6 +137,7 @@ async def test_jina_embeddings_pgvector_storage_and_semantic_search():
 
             # 3. Wait for background ingestion to complete
             import asyncio
+
             for _ in range(25):
                 doc_chk = await client.get(f"/api/v1/documents/{doc_id}", headers=headers)
                 if doc_chk.json().get("status") in ("completed", "failed"):
@@ -145,7 +145,9 @@ async def test_jina_embeddings_pgvector_storage_and_semantic_search():
                 await asyncio.sleep(0.5)
 
             final_doc = await client.get(f"/api/v1/documents/{doc_id}", headers=headers)
-            assert final_doc.json().get("status") == "completed", f"Ingestion failed: {final_doc.json()}"
+            assert final_doc.json().get("status") == "completed", (
+                f"Ingestion failed: {final_doc.json()}"
+            )
 
             # 4. Verify vector was stored in PostgreSQL document_chunks table with 1536 dimensions
             async with AsyncSessionLocal() as session:
@@ -156,7 +158,9 @@ async def test_jina_embeddings_pgvector_storage_and_semantic_search():
                 assert len(chunks) > 0, "No chunks created in PostgreSQL"
                 stored_chunk = chunks[0]
                 assert stored_chunk.embedding is not None, "Chunk embedding must not be None"
-                assert len(stored_chunk.embedding) == 1536, "Stored pgvector must have 1536 dimensions"
+                assert len(stored_chunk.embedding) == 1536, (
+                    "Stored pgvector must have 1536 dimensions"
+                )
 
             # 5. Perform semantic search through Core API using real Jina query embedding
             search_res = await client.post(
@@ -205,4 +209,6 @@ async def test_jina_error_handling_and_timeout():
     # Error message must be explicit and observable, without exposing secrets
     err_str = str(exc_info.value)
     assert "Embedding provider error" in err_str
-    assert "jina_invalid_token_test_1234567890" not in err_str, "Secret must not be in error message"
+    assert "jina_invalid_token_test_1234567890" not in err_str, (
+        "Secret must not be in error message"
+    )

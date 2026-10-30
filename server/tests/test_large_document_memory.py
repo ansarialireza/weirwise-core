@@ -30,7 +30,7 @@ async def setup_db():
 
 async def test_large_document_bounded_memory_ingestion():
     """Verify that a large (~2 MB / ~250k words) document stages in-memory and ingests reliably within memory bounds."""
-    storage_dir = "./data/test_storage"
+    storage_dir = "./var/data/test_storage"
     os.makedirs(storage_dir, exist_ok=True)
     file_path = os.path.join(storage_dir, f"{uuid.uuid4()}_large.txt")
 
