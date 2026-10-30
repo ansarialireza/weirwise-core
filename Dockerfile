@@ -8,13 +8,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
+RUN groupadd -g 10001 weirwise && \
+    useradd -u 10001 -g weirwise -m -s /bin/bash weirwise
+
 COPY pyproject.toml .
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -e .
 
 COPY . .
 
-RUN mkdir -p /app/var/data/storage /app/var/databases /app/data/storage
+RUN mkdir -p /app/var/data/storage /app/var/databases /app/data/storage && \
+    chown -R weirwise:weirwise /app
+
+USER weirwise
 
 EXPOSE 8000
 
