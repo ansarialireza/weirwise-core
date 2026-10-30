@@ -40,10 +40,56 @@ async def lifespan(app: FastAPI):
     await engine.dispose()
 
 
+tags_metadata = [
+    {
+        "name": "Health & Diagnostics",
+        "description": "Liveness and readiness probes for service orchestration and database monitoring.",
+    },
+    {
+        "name": "Knowledge Bases",
+        "description": "Manage multi-tenant isolated knowledge bases for document partitioning.",
+    },
+    {
+        "name": "Documents & Ingestion",
+        "description": "Upload, deduplicate, chunk, and index documents using vector embeddings.",
+    },
+    {
+        "name": "Retrieval & Search",
+        "description": "Perform semantic similarity search with cosine distance, threshold filtering, and metadata constraints.",
+    },
+    {
+        "name": "Assistants & Chat",
+        "description": "Configure AI assistants grounded in knowledge bases and execute conversational chat.",
+    },
+]
+
 app = FastAPI(
     title="Weirwise Core API",
-    description="Open-source lightweight, modular RAG infrastructure for developers.",
+    description="""
+**Weirwise Core** is an open-source, lightweight, enterprise-grade RAG (Retrieval-Augmented Generation) infrastructure engine.
+
+### Key Capabilities:
+- **Tenant Isolation**: Multi-tenant database partitioning secured by SHA-256 hashed API keys.
+- **Asynchronous Ingestion**: Automatic chunking, deduplication, and atomic zero-downtime vector replacement.
+- **pgvector & Fallback**: High-performance semantic vector search with cosine similarity and metadata filtering.
+- **Assistant Grounding**: Grounded question-answering with citation attribution and source verification.
+
+### Authentication:
+Supply your API key in the `X-API-Key` HTTP request header:
+```http
+X-API-Key: ww_live_xxxxxxxxxxxxxxxxxxxxxxxx
+```
+""",
     version=settings.app_version,
+    openapi_tags=tags_metadata,
+    contact={
+        "name": "Weirwise Open-Source Contributors",
+        "url": "https://github.com/ansarialireza/weirwise-rag-core",
+    },
+    license_info={
+        "name": "MIT License",
+        "url": "https://opensource.org/licenses/MIT",
+    },
     lifespan=lifespan,
 )
 
@@ -70,12 +116,26 @@ async def correlation_id_middleware(request: Request, call_next):
     return response
 
 
-@app.get("/health/live", tags=["Health"], response_model=HealthResponse)
+@app.get(
+    "/health/live",
+    tags=["Health & Diagnostics"],
+    summary="Liveness Probe",
+    description="Check whether the application process is running and responding to HTTP requests.",
+    response_model=HealthResponse,
+    operation_id="get_health_live",
+)
 async def health_live():
     return HealthResponse(status="alive", database="unverified", version=settings.app_version)
 
 
-@app.get("/health/ready", tags=["Health"], response_model=HealthResponse)
+@app.get(
+    "/health/ready",
+    tags=["Health & Diagnostics"],
+    summary="Readiness Probe",
+    description="Check whether the application is fully initialized and can successfully execute queries against the primary database.",
+    response_model=HealthResponse,
+    operation_id="get_health_ready",
+)
 async def health_ready(db: AsyncSession = Depends(get_db)):
     try:
         await db.execute(text("SELECT 1"))

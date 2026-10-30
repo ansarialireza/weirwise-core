@@ -50,7 +50,13 @@ router = APIRouter(prefix="/v1")
 
 # --- Knowledge Bases ---
 @router.post(
-    "/knowledge-bases", response_model=KnowledgeBaseResponse, status_code=status.HTTP_201_CREATED
+    "/knowledge-bases",
+    response_model=KnowledgeBaseResponse,
+    status_code=status.HTTP_201_CREATED,
+    tags=["Knowledge Bases"],
+    summary="Create Knowledge Base",
+    description="Creates a new isolated partition for storing and indexing related documents.",
+    operation_id="create_knowledge_base",
 )
 async def create_knowledge_base(
     payload: KnowledgeBaseCreate,
@@ -68,7 +74,14 @@ async def create_knowledge_base(
     return kb
 
 
-@router.get("/knowledge-bases", response_model=List[KnowledgeBaseResponse])
+@router.get(
+    "/knowledge-bases",
+    response_model=List[KnowledgeBaseResponse],
+    tags=["Knowledge Bases"],
+    summary="List Knowledge Bases",
+    description="Retrieves a paginated list of knowledge bases owned by the authenticated tenant.",
+    operation_id="list_knowledge_bases",
+)
 async def list_knowledge_bases(
     limit: int = 50,
     offset: int = 0,
@@ -91,7 +104,14 @@ async def list_knowledge_bases(
     return res.scalars().all()
 
 
-@router.get("/knowledge-bases/{kb_id}", response_model=KnowledgeBaseResponse)
+@router.get(
+    "/knowledge-bases/{kb_id}",
+    response_model=KnowledgeBaseResponse,
+    tags=["Knowledge Bases"],
+    summary="Get Knowledge Base by ID",
+    description="Retrieves detailed metadata for a specific knowledge base owned by the authenticated tenant.",
+    operation_id="get_knowledge_base",
+)
 async def get_knowledge_base(
     kb_id: UUID,
     tenant: Tenant = Depends(get_current_tenant),
@@ -108,7 +128,14 @@ async def get_knowledge_base(
     return kb
 
 
-@router.delete("/knowledge-bases/{kb_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/knowledge-bases/{kb_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    tags=["Knowledge Bases"],
+    summary="Delete Knowledge Base",
+    description="Permanently deletes a knowledge base and all associated documents, chunks, and vector embeddings.",
+    operation_id="delete_knowledge_base",
+)
 async def delete_knowledge_base(
     kb_id: UUID,
     tenant: Tenant = Depends(get_current_tenant),
@@ -129,7 +156,13 @@ async def delete_knowledge_base(
 
 # --- Documents ---
 @router.post(
-    "/documents/upload", response_model=DocumentUploadResponse, status_code=status.HTTP_202_ACCEPTED
+    "/documents/upload",
+    response_model=DocumentUploadResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    tags=["Documents & Ingestion"],
+    summary="Upload & Ingest Document",
+    description="Uploads a file to a designated knowledge base. Automatically performs SHA-256 deduplication and initiates asynchronous chunking and vector embedding generation.",
+    operation_id="upload_document",
 )
 async def upload_document(
     background_tasks: BackgroundTasks,
@@ -313,7 +346,14 @@ async def upload_document(
     )
 
 
-@router.get("/documents/{doc_id}", response_model=DocumentResponse)
+@router.get(
+    "/documents/{doc_id}",
+    response_model=DocumentResponse,
+    tags=["Documents & Ingestion"],
+    summary="Get Document Status",
+    description="Retrieves the current ingestion status, metadata, content hash, and error details of a specific document.",
+    operation_id="get_document",
+)
 async def get_document(
     doc_id: UUID,
     tenant: Tenant = Depends(get_current_tenant),
@@ -330,7 +370,14 @@ async def get_document(
     return doc
 
 
-@router.get("/knowledge-bases/{kb_id}/documents", response_model=List[DocumentResponse])
+@router.get(
+    "/knowledge-bases/{kb_id}/documents",
+    response_model=List[DocumentResponse],
+    tags=["Documents & Ingestion"],
+    summary="List Documents in Knowledge Base",
+    description="Lists documents belonging to a specific knowledge base with pagination support.",
+    operation_id="list_documents_in_knowledge_base",
+)
 async def list_documents(
     kb_id: UUID,
     limit: int = 50,
@@ -367,7 +414,14 @@ async def list_documents(
     return res.scalars().all()
 
 
-@router.delete("/documents/{doc_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/documents/{doc_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    tags=["Documents & Ingestion"],
+    summary="Delete Document",
+    description="Deletes a document record, physical file, and all associated embedding chunks from vector storage.",
+    operation_id="delete_document",
+)
 async def delete_document(
     doc_id: UUID,
     tenant: Tenant = Depends(get_current_tenant),
@@ -395,7 +449,14 @@ async def delete_document(
 
 
 # --- Search ---
-@router.post("/search", response_model=SearchResponse)
+@router.post(
+    "/search",
+    response_model=SearchResponse,
+    tags=["Retrieval & Search"],
+    summary="Semantic Vector Search",
+    description="Performs semantic cosine similarity search across indexed document chunks with optional minimum score threshold and metadata filtering.",
+    operation_id="search_knowledge",
+)
 async def search_knowledge(
     payload: SearchRequest,
     tenant: Tenant = Depends(get_current_tenant),
@@ -429,7 +490,15 @@ async def search_knowledge(
 
 
 # --- Assistants ---
-@router.post("/assistants", response_model=AssistantResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/assistants",
+    response_model=AssistantResponse,
+    status_code=status.HTTP_201_CREATED,
+    tags=["Assistants & Chat"],
+    summary="Create Assistant",
+    description="Creates a conversational AI assistant bound to an optional knowledge base for grounded generation.",
+    operation_id="create_assistant",
+)
 async def create_assistant(
     payload: AssistantCreate,
     tenant: Tenant = Depends(get_current_tenant),
@@ -460,7 +529,14 @@ async def create_assistant(
     return assistant
 
 
-@router.get("/assistants", response_model=List[AssistantResponse])
+@router.get(
+    "/assistants",
+    response_model=List[AssistantResponse],
+    tags=["Assistants & Chat"],
+    summary="List Assistants",
+    description="Retrieves a paginated list of AI assistants configured by the authenticated tenant.",
+    operation_id="list_assistants",
+)
 async def list_assistants(
     limit: int = 50,
     offset: int = 0,
@@ -483,7 +559,14 @@ async def list_assistants(
     return res.scalars().all()
 
 
-@router.get("/assistants/{assistant_id}", response_model=AssistantResponse)
+@router.get(
+    "/assistants/{assistant_id}",
+    response_model=AssistantResponse,
+    tags=["Assistants & Chat"],
+    summary="Get Assistant by ID",
+    description="Retrieves configuration parameters and grounding status of a specific assistant.",
+    operation_id="get_assistant",
+)
 async def get_assistant(
     assistant_id: UUID,
     tenant: Tenant = Depends(get_current_tenant),
@@ -500,7 +583,14 @@ async def get_assistant(
     return ast
 
 
-@router.delete("/assistants/{assistant_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/assistants/{assistant_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    tags=["Assistants & Chat"],
+    summary="Delete Assistant",
+    description="Permanently deletes an assistant and all associated conversational histories.",
+    operation_id="delete_assistant",
+)
 async def delete_assistant(
     assistant_id: UUID,
     tenant: Tenant = Depends(get_current_tenant),
@@ -520,7 +610,14 @@ async def delete_assistant(
 
 
 # --- Conversations & Chat ---
-@router.post("/assistants/{assistant_id}/chat", response_model=ChatResponse)
+@router.post(
+    "/assistants/{assistant_id}/chat",
+    response_model=ChatResponse,
+    tags=["Assistants & Chat"],
+    summary="Grounded Chat Completion",
+    description="Sends a user inquiry to an assistant. Retrieves relevant knowledge chunks, injects context into the prompt, invokes the LLM, and returns the response with source citation metadata.",
+    operation_id="chat_with_assistant",
+)
 async def chat_with_assistant(
     assistant_id: UUID,
     payload: ChatRequest,
@@ -660,7 +757,14 @@ async def chat_with_assistant(
     )
 
 
-@router.get("/conversations/{conversation_id}/messages", response_model=List[MessageResponse])
+@router.get(
+    "/conversations/{conversation_id}/messages",
+    response_model=List[MessageResponse],
+    tags=["Assistants & Chat"],
+    summary="Get Conversation Messages",
+    description="Retrieves ordered chronological message history and grounding sources for a specific conversation thread.",
+    operation_id="get_conversation_messages",
+)
 async def get_conversation_messages(
     conversation_id: UUID,
     tenant: Tenant = Depends(get_current_tenant),
