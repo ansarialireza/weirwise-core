@@ -27,6 +27,10 @@ def _sanitize_request_id(req_id: str | None) -> str:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Ensure storage directory exists
+    import os
+
+    os.makedirs(settings.storage_dir, exist_ok=True)
     # Setup tables if needed
     async with engine.begin() as conn:
         # If postgresql, ensure pgvector extension exists
