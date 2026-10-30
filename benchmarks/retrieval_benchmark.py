@@ -11,7 +11,6 @@ import time
 import math
 import random
 import platform
-import psycopg
 
 # Connection details
 DB_URL = os.environ.get(
@@ -52,6 +51,8 @@ def run_benchmark():
     hw = get_hardware_info()
     for k, v in hw.items():
         print(f"  {k}: {v}")
+
+    import psycopg
 
     with psycopg.connect(DB_URL, autocommit=True) as conn:
         with conn.cursor() as cur:
